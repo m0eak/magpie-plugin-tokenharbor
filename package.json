@@ -1,0 +1,22 @@
+{
+  "name": "opencode-tokenharbor-provider",
+  "version": "0.1.0",
+  "description": "OpenCode-compatible TokenHarbor provider plugin with quota visibility",
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": "./index.mjs",
+  "files": [
+    "index.mjs",
+    "lib/",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test ./test/plugin.test.mjs",
+    "test:quota:live": "node ./test/live-quota.mjs"
+  },
+  "keywords": [
+    "opencode-plugin",
+    "provider",
+    "tokenharbor"
+  ]
+}
