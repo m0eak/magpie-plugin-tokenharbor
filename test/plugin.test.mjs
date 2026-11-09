@@ -1,6 +1,22 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import TokenHarborProviderPlugin from '../index.mjs';
+
+test('provider and package discovery expose the TokenHarbor icon', async () => {
+  const hooks = await TokenHarborProviderPlugin({});
+  const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  const svg = await readFile(new URL('../tokenharbor.svg', import.meta.url), 'utf8');
+  const packageIcon = pkg['magpie'].icon;
+
+  assert.match(packageIcon, /^data:image\/svg\+xml;base64,/);
+  assert.equal(hooks.auth.icon, packageIcon);
+  assert.equal(Buffer.from(packageIcon.split(',')[1], 'base64').toString('utf8'), svg);
+  assert.ok(pkg.files.includes('tokenharbor.svg'));
+  assert.match(svg, /<title[^>]*>Rudder\.chat sail logo for-light<\/title>/);
+  assert.match(svg, /<svg\b[^>]*width="808"[^>]*height="808"[^>]*viewBox="96 96 808 808"/);
+  assert.match(svg, /<rect x="96" y="96" width="808" height="808" rx="150" fill="#F8F6F2"\/>/);
+});
 import { ALLOWANCE_URL, API_BASE_URL, PROVIDER_ID } from '../lib/tokenharbor.mjs';
 
 const secretSentinel = 'synthetic-key-must-not-leak';
@@ -58,7 +74,10 @@ test('exports a host provider, standard API-key login, loader, and Usage hook', 
   const userConfig = { provider: { tokenharbor: { name: 'My TokenHarbor' } } };
   await hooks.config(userConfig);
   assert.equal(userConfig.provider.tokenharbor.name, 'My TokenHarbor');
-  assert.equal(await hooks.auth.loader(async () => ({ type: 'api', key: secretSentinel })).then((x) => x.apiKey), secretSentinel);
+  assert.deepEqual(await hooks.auth.loader(async () => ({ type: 'api', key: secretSentinel })), {
+    apiKey: secretSentinel,
+    baseURL: 'https://tokenharbor.ai/v1',
+  });
   assert.deepEqual(await hooks.auth.loader(async () => ({ type: 'oauth' })), {});
 });
 
@@ -113,6 +132,109 @@ test('aside quota display includes approximate remaining percentage at zero usag
   assert.equal(usage.windows[0].used, 0);
   assert.equal(usage.windows[0].aside, true);
   assert.equal(usage.windows[0].display, '0% used · approximately 100% remaining · available');
+});
+
+test('one plugin instance reads the live English usage option and preserves quota semantics', async () => {
+  let englishUsage = false;
+  const hooks = await TokenHarborProviderPlugin({
+    magpie: {
+      option(provider, key) {
+        assert.equal(provider, PROVIDER_ID);
+        assert.equal(key, 'english-usage');
+        return englishUsage;
+      },
+    },
+  });
+  const getAuth = async () => ({ type: 'api', key: secretSentinel });
+  const read = (payload) => withFetch(async () => jsonResponse(payload), () => hooks.auth.usage(getAuth));
+
+  assert.equal(hooks.auth.options[0].default, false);
+  assert.equal(hooks.auth.options[0].labels.zh, '英文用量文案');
+  assert.equal(hooks.auth.options[0].labels['zh-TW'], '英文用量文字');
+  assert.ok(hooks.auth.options[0].descriptions.zh.includes('显示英文'));
+  const chinese = await read(quotaPayload({
+    plan_name: 'Agent Pass',
+    plan_used_pct: 1,
+    plan_exhausted: false,
+    used_pct: 100,
+    exhausted: true,
+  }));
+  assert.equal(chinese.windows[0].name, 'Agent Pass · 7 天');
+  assert.equal(chinese.windows[0].display, '已用 1% · 约剩余 99% · 可用');
+  assert.equal(chinese.windows[0].used, 1);
+  assert.equal(chinese.windows[0].aside, true);
+  assert.equal(chinese.windows[0].span, 604800);
+  assert.equal(chinese.windows[0].resetsAt, '2026-11-16T00:00:00.000Z');
+  assert.equal(chinese.windows[1].name, '免费模型 · 7 天');
+  assert.equal(chinese.windows[1].display, '已用 100% · 约剩余 0% · 已耗尽');
+  assert.deepEqual(chinese.windows[1].models, ['model-free-a']);
+  assert.equal(chinese.windows[1].aside, true);
+
+  englishUsage = true;
+  const english = await read(quotaPayload({
+    plan_name: 'Agent Pass',
+    plan_used_pct: 1,
+    plan_exhausted: false,
+    used_pct: 100,
+    exhausted: true,
+  }));
+  assert.equal(english.windows[0].name, 'Agent Pass · 7 days');
+  assert.equal(english.windows[0].display, '1% used · approximately 99% remaining · available');
+  assert.equal(english.windows[1].name, 'Free models · 7 days');
+  assert.equal(english.windows[1].display, '100% used · approximately 0% remaining · exhausted');
+
+  englishUsage = false;
+  const chineseAgain = await read(quotaPayload({ plan_name: 'Agent Pass' }));
+  assert.equal(chineseAgain.windows[0].name, 'Agent Pass · 7 天');
+
+  const freeTier = await read(quotaPayload({
+    on_plan: false,
+    activated: true,
+    models_enabled: true,
+  }));
+  assert.equal(freeTier.plan, '免费套餐');
+  const noPlan = await read(quotaPayload({
+    on_plan: false,
+    activated: false,
+    models_enabled: false,
+  }));
+  assert.equal(noPlan.plan, '没有活动套餐');
+  const disabledModels = await read(quotaPayload({
+    on_plan: false,
+    activated: true,
+    models_enabled: false,
+  }));
+  assert.equal(disabledModels.plan, '免费模型已停用');
+  const unknownPlan = await read(quotaPayload({
+    on_plan: undefined,
+    activated: undefined,
+    models_enabled: undefined,
+  }));
+  assert.equal(unknownPlan.plan, '套餐状态未知');
+  assert.equal(unknownPlan.error, 'TokenHarbor 返回的额度数据不完整');
+});
+
+test('localized HTTP and network errors stay sanitized in both languages', async () => {
+  let englishUsage = false;
+  const hooks = await TokenHarborProviderPlugin({
+    magpie: { option: () => englishUsage },
+  });
+  const getAuth = async () => ({ type: 'api', key: secretSentinel });
+  const readFailure = (fetchImpl) => withFetch(fetchImpl, () => hooks.auth.usage(getAuth));
+
+  const chineseHttp = await readFailure(async () => new Response('private body', { status: 403 }));
+  assert.equal(chineseHttp.error, 'TokenHarbor 额度查询失败（HTTP 403）');
+  const chineseNetwork = await readFailure(async () => { throw new Error(secretSentinel); });
+  assert.equal(chineseNetwork.error, 'TokenHarbor 额度查询失败（网络错误）');
+  englishUsage = true;
+  const englishHttp = await readFailure(async () => new Response('private body', { status: 403 }));
+  assert.equal(englishHttp.error, 'TokenHarbor quota request failed (HTTP 403)');
+  const englishNetwork = await readFailure(async () => { throw new Error(secretSentinel); });
+  assert.equal(englishNetwork.error, 'TokenHarbor quota request failed (network error)');
+  for (const result of [chineseHttp, chineseNetwork, englishHttp, englishNetwork]) {
+    assert.equal(JSON.stringify(result).includes(secretSentinel), false);
+    assert.equal(JSON.stringify(result).includes('private body'), false);
+  }
 });
 
 test('inactive or disabled free models do not create a free quota window', async () => {

@@ -20,11 +20,15 @@ magpie plugin add /tmp/tokenharbor-plugin/package
 
 安装后在 **Providers** 中选择 TokenHarbor，按提示粘贴自己的 API Key，再选择模型。
 
+provider 和插件发现卡片使用 TokenHarbor 官网公开的图标，源文件随 npm 包一并发布。
+
 插件会在模型列表刷新时读取 TokenHarbor 的 `/v1/models` 元数据；这是模型目录查询，不会提交推理请求。实际模型可用性、模型权限和推理错误仍由 TokenHarbor 决定。
 
 ## Usage 中的额度
 
-宿主的 Usage 卡片会显示 TokenHarbor 文档接口提供的 Pass 与免费模型额度百分比、耗尽状态和七天窗口重置时间。Pass 与免费模型额度分别显示，但共用 `reset_at` 窗口。百分比是四舍五入后的整数；插件以 `plan_exhausted` 和 `exhausted` 标记显示“exhausted/available”，不会仅凭 `100%` 推断耗尽。缺少活动 Pass 或免费模型未启用/未激活时，不会生成虚假的免费额度窗口。
+宿主的 Usage 卡片会显示 TokenHarbor 文档接口提供的 Pass 与免费模型额度百分比、耗尽状态和七天窗口重置时间。Pass 与免费模型额度分别显示，但共用 `reset_at` 窗口。百分比是四舍五入后的整数；插件以 `plan_exhausted` 和 `exhausted` 标记显示“已耗尽/可用”，不会仅凭 `100%` 推断耗尽。缺少活动 Pass 或免费模型未启用/未激活时，不会生成虚假的免费额度窗口。
+
+当前宿主没有自动按界面语言翻译插件 Usage 文案。支持宿主选项 API 的宿主默认显示中文；在 **Providers → TokenHarbor → Plugin options** 开启 **English usage text** 可显示英文。OpenCode 和较旧宿主没有该选项 API，会保留英文文案。
 
 这些卡片只用于 Usage 展示，不参与宿主的模型路由判断。TokenHarbor 没有在此接口中承诺钱包美元余额，因此插件不会显示或估算 USD 余额。重置时间缺失时，卡片不显示猜测的时间。宿主按自己的 Usage 刷新策略读取；TokenHarbor 说明额度接口可能缓存最多 15 秒。
 
