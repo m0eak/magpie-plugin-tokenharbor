@@ -25,7 +25,25 @@ export default async function TokenHarborProviderPlugin(input = {}) {
   return {
     config: async (config) => {
       config.provider ??= {};
-      config.provider[PROVIDER_ID] ??= structuredClone(PROVIDER);
+      const existing = config.provider[PROVIDER_ID] ?? {};
+      config.provider[PROVIDER_ID] = {
+        ...structuredClone(PROVIDER),
+        ...existing,
+        options: {
+          ...PROVIDER.options,
+          ...(existing.options ?? {}),
+        },
+        models: Object.fromEntries(
+          [...new Set([...Object.keys(PROVIDER.models), ...Object.keys(existing.models ?? {})])]
+            .map((modelId) => [
+              modelId,
+              {
+                ...(PROVIDER.models[modelId] ?? {}),
+                ...(existing.models?.[modelId] ?? {}),
+              },
+            ]),
+        ),
+      };
     },
 
     auth: {
@@ -58,7 +76,7 @@ export default async function TokenHarborProviderPlugin(input = {}) {
           : {};
       },
 
-      async usage(getAuth) {
+      async usage(getAuth, _model, { signal } = {}) {
         let language = 'en';
         if (typeof input?.magpie?.option === 'function') {
           language = input.magpie.option(PROVIDER_ID, 'english-usage') === true ? 'en' : 'zh';
@@ -72,7 +90,7 @@ export default async function TokenHarborProviderPlugin(input = {}) {
         if (auth?.type !== 'api' || typeof auth.key !== 'string' || auth.key.length === 0) {
           return localizeUsage({ error: 'TokenHarbor API key is missing', windows: [] }, language);
         }
-        return localizeUsage(await readAllowance(auth.key), language);
+        return localizeUsage(await readAllowance(auth.key, globalThis.fetch, { signal }), language);
       },
     },
 

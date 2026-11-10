@@ -71,9 +71,14 @@ test('exports a host provider, standard API-key login, loader, and Usage hook', 
     'th-orchestra': { name: 'TH Orchestra', tool_call: true },
   });
 
-  const userConfig = { provider: { tokenharbor: { name: 'My TokenHarbor' } } };
+  const userConfig = { provider: { tokenharbor: { name: 'My TokenHarbor', options: { customOption: true }, models: { 'th-orchestra': { name: 'My Orchestra' }, customModel: { name: 'Custom model' } } } } };
   await hooks.config(userConfig);
   assert.equal(userConfig.provider.tokenharbor.name, 'My TokenHarbor');
+  assert.equal(userConfig.provider.tokenharbor.npm, '@ai-sdk/openai-compatible');
+  assert.equal(userConfig.provider.tokenharbor.options.baseURL, 'https://tokenharbor.ai/v1');
+  assert.equal(userConfig.provider.tokenharbor.options.customOption, true);
+  assert.deepEqual(userConfig.provider.tokenharbor.models['th-orchestra'], { name: 'My Orchestra', tool_call: true });
+  assert.deepEqual(userConfig.provider.tokenharbor.models.customModel, { name: 'Custom model' });
   assert.deepEqual(await hooks.auth.loader(async () => ({ type: 'api', key: secretSentinel })), {
     apiKey: secretSentinel,
     baseURL: 'https://tokenharbor.ai/v1',
@@ -132,6 +137,24 @@ test('aside quota display includes approximate remaining percentage at zero usag
   assert.equal(usage.windows[0].used, 0);
   assert.equal(usage.windows[0].aside, true);
   assert.equal(usage.windows[0].display, '0% used · approximately 100% remaining · available');
+});
+
+test('usage forwards the host abort signal and hides cancellation as stale output', async () => {
+  const hooks = await TokenHarborProviderPlugin({});
+  const controller = new AbortController();
+  let receivedSignal;
+  const result = await withFetch(async (_url, options) => {
+    receivedSignal = options.signal;
+    controller.abort();
+    throw new DOMException('Aborted', 'AbortError');
+  }, () => hooks.auth.usage(
+    async () => ({ type: 'api', key: secretSentinel }),
+    undefined,
+    { signal: controller.signal },
+  ));
+
+  assert.equal(receivedSignal.aborted, true);
+  assert.deepEqual(result, { windows: [] });
 });
 
 test('one plugin instance reads the live English usage option and preserves quota semantics', async () => {
