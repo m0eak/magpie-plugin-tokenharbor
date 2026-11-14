@@ -1,7 +1,7 @@
 {
-  "name": "opencode-tokenharbor-provider",
+  "name": "magpie-plugin-tokenharbor",
   "version": "0.1.0",
-  "description": "OpenCode-compatible TokenHarbor provider plugin with quota visibility",
+  "description": "TokenHarbor provider plugin for magpie with quota visibility",
   "type": "module",
   "main": "./index.mjs",
   "exports": "./index.mjs",
@@ -16,7 +16,7 @@
     "test:quota:live": "node ./test/live-quota.mjs"
   },
   "keywords": [
-    "opencode-plugin",
+    "magpie-plugin",
     "provider",
     "tokenharbor"
   ],
